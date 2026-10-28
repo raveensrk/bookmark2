@@ -110,6 +110,11 @@
   (let [parts (str/split tag #"/")]
     (mapv #(str/join "/" (take % parts)) (range 1 (inc (count parts))))))
 
+(defn known-tags
+  "Every tag the links use, and every branch above one, A-Z ignoring case."
+  [links]
+  (vec (sort-by str/lower-case (distinct (mapcat ancestors-of (mapcat :tags links))))))
+
 ;; ---------------------------------------------------------------- reading
 
 (defn parse

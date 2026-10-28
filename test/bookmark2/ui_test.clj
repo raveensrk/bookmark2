@@ -35,3 +35,21 @@
   (testing "searching ignores folds"
     (is (some #(= "bravo" (:title %))
               (#'ui/rows {:visible links :folded #{"To Read"} :query "x" :sort {:key nil} :scope nil})))))
+
+(deftest tag-completion
+  (let [known ["Hardware" "Hardware/FPGA" "Hardware/RISC-V" "Read" "To Read" "Writing/Questioning"]]
+    (testing "prefix first, then a part's prefix, then anywhere"
+      (is (= ["Read" "To Read"] (#'ui/tag-completions known "rea" [])))
+      (is (= ["Hardware/FPGA"] (#'ui/tag-completions known "fp" [])))
+      (is (= ["Read" "Hardware/RISC-V" "Hardware" "Hardware/FPGA" "To Read" "Writing/Questioning"]
+             (#'ui/tag-completions known "r" [])))
+      (is (= ["Writing/Questioning"] (#'ui/tag-completions known "estion" []))))
+    (testing "tags already in the field are left out; blank offers the rest"
+      (is (= ["To Read"] (#'ui/tag-completions known "rea" ["read"])))
+      (is (= 5 (count (#'ui/tag-completions known " " ["Read"]))))))
+  (testing "the segment under the caret"
+    (is (= [0 8] (#'ui/tag-segment "Hardware" 3)))
+    (is (= [9 12] (#'ui/tag-segment "Hardware, FP" 12)))
+    (is (= [0 0] (#'ui/tag-segment "" 0)))
+    (is (= [9 12] (#'ui/tag-segment "Hardware, FP, Read" 11)))
+    (is (= [9 9] (#'ui/tag-segment "Hardware," 9)))))

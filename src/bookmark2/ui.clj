@@ -40,10 +40,10 @@
            (java.awt BorderLayout Color Dimension Font GridBagConstraints GridBagLayout Insets
                      KeyboardFocusManager Rectangle Toolkit)
            (java.awt.datatransfer DataFlavor StringSelection)
-           (java.awt.event KeyAdapter KeyEvent MouseAdapter WindowAdapter)
-           (javax.swing AbstractAction Action BorderFactory JButton JComponent
+           (java.awt.event FocusAdapter KeyAdapter KeyEvent MouseAdapter WindowAdapter)
+           (javax.swing AbstractAction Action BorderFactory DefaultListModel JButton JComponent
                         JEditorPane JFileChooser JFrame JLabel JList JMenu JMenuBar JMenuItem JOptionPane JPanel
-                        JPopupMenu JScrollPane JSplitPane JTable JTextArea JTextField JToolBar JTree KeyStroke
+                        JPopupMenu JScrollPane JSplitPane JTable JTextArea JTextField JToolBar JTree JWindow KeyStroke
                         ListSelectionModel MenuElement MenuSelectionManager SwingUtilities UIManager)
            (javax.swing.event DocumentListener)
            (javax.swing.filechooser FileNameExtensionFilter)
@@ -640,6 +640,109 @@
   [s]
   (db/clean-tags (str/split (str s) #",")))
 
+(defn- tag-segment
+  "[start end] of the comma-separated tag the caret is in."
+  [text caret]
+  [(if (pos? caret) (inc (or (str/last-index-of text "," (dec caret)) -1)) 0)
+   (or (str/index-of text "," caret) (count text))])
+
+(def max-completions 12)
+
+(defn- tag-completions
+  "Known tags for what is typed, those already chosen left out: the ones that
+  start with it first, then those with a part that starts with it (fpga ->
+  Hardware/FPGA), then the rest that contain it. Blank typed -> all of them."
+  [known typed chosen]
+  (let [q (str/lower-case (str/trim typed))
+        chosen (set (map str/lower-case chosen))
+        rank (fn [t]
+               (let [l (str/lower-case t)]
+                 (cond (str/starts-with? l q) 0
+                       (some #(str/starts-with? % q) (str/split l #"/")) 1
+                       (str/includes? l q) 2)))]
+    (->> known
+         (remove #(chosen (str/lower-case %)))
+         (keep #(when-let [r (rank %)] [r %]))
+         (sort-by first)
+         (map second)
+         (take max-completions)
+         vec)))
+
+(defn- complete-tags!
+  "Suggest known tags under field as it is typed in. Down opens the list or
+  moves down, Up moves up, Enter takes the chosen tag, Esc closes the list;
+  with the list closed, Enter and Esc reach the dialog. multi?: the field is
+  comma separated, and taking a tag at the end adds \", \" for the next."
+  [^JTextField field multi?]
+  (let [known (db/known-tags (:links (:db @state)))
+        model (DefaultListModel.)
+        lst (doto (JList. model)
+              (.setFocusable false)
+              (.setSelectionMode ListSelectionModel/SINGLE_SELECTION))
+        scroll (doto (JScrollPane. lst) (.setBorder (UIManager/getBorder "PopupMenu.border")))
+        popup (atom nil)
+        quiet? (atom false)
+        open? #(some-> ^JWindow @popup .isVisible)
+        hide! #(some-> ^JWindow @popup (.setVisible false))
+        segment (fn [] (let [t (.getText field)] [t (tag-segment t (.getCaretPosition field))]))
+        refresh! (fn [all?]
+                   (let [[t [a b]] (segment)
+                         typed (subs t a b)
+                         chosen (if multi? (parse-tags (str (subs t 0 a) "," (subs t b))) [])
+                         items (when (or all? (not (str/blank? typed))) (tag-completions known typed chosen))]
+                     (if (empty? items)
+                       (hide!)
+                       (let [^JWindow w (or @popup
+                                            (reset! popup (doto (JWindow. (SwingUtilities/getWindowAncestor field))
+                                                            (.setFocusableWindowState false)
+                                                            (.add scroll))))]
+                         (.clear model)
+                         (doseq [i items] (.addElement model i))
+                         (.setSelectedIndex lst 0)
+                         (.setVisibleRowCount lst (min 8 (count items)))
+                         (.setPreferredSize scroll nil)
+                         (.setPreferredSize scroll (Dimension. (.getWidth field) (.height (.getPreferredSize scroll))))
+                         (.pack w)
+                         (let [p (.getLocationOnScreen field)]
+                           (.setLocation w (.x p) (+ (.y p) (.getHeight field))))
+                         (.setVisible w true)))))
+        accept! (fn []
+                  (when-let [v (.getSelectedValue lst)]
+                    (let [[t [a b]] (segment)
+                          before (str (subs t 0 a) (when (pos? a) " ") v (when (and multi? (= b (count t))) ", "))]
+                      (reset! quiet? true)
+                      (.setText field (str before (subs t b)))
+                      (reset! quiet? false)
+                      (.setCaretPosition field (count before))
+                      (hide!))))
+        move! (fn [d]
+                (if (open?)
+                  (let [i (max 0 (min (dec (.getSize model)) (+ d (.getSelectedIndex lst))))]
+                    (.setSelectedIndex lst i)
+                    (.ensureIndexIsVisible lst i))
+                  (when (pos? d) (refresh! true))))
+        ;; enabled only while the list is open, so otherwise the key goes on to the dialog
+        bind! (fn [ks name f always?]
+                (.put (.getInputMap field JComponent/WHEN_FOCUSED) (KeyStroke/getKeyStroke ^String ks) name)
+                (.put (.getActionMap field) name (proxy [AbstractAction] []
+                                                   (isEnabled [] (boolean (or always? (open?))))
+                                                   (actionPerformed [_] (f)))))]
+    (bind! "DOWN" "tags-down" #(move! 1) true)
+    (bind! "UP" "tags-up" #(move! -1) false)
+    (bind! "ENTER" "tags-take" accept! false)
+    (bind! "ESCAPE" "tags-close" hide! false)
+    (.addDocumentListener (.getDocument field)
+                          (reify DocumentListener
+                            (insertUpdate [_ _] (when-not @quiet? (on-edt #(refresh! false))))
+                            (removeUpdate [_ _] (when-not @quiet? (on-edt #(refresh! false))))
+                            (changedUpdate [_ _])))
+    (.addFocusListener field (proxy [FocusAdapter] [] (focusLost [_] (hide!))))
+    (.addMouseListener lst (proxy [MouseAdapter] []
+                             (mouseClicked [e]
+                               (.setSelectedIndex lst (.locationToIndex lst (.getPoint ^java.awt.event.MouseEvent e)))
+                               (accept!))))
+    field))
+
 (def ok-key "OK from anywhere in a form, the multi-line note included."
   (if (os/mac?) "meta ENTER" "ctrl ENTER"))
 (def ok-key-name (if (os/mac?) "Cmd+Enter" "Ctrl+Enter"))
@@ -663,7 +766,7 @@
   [{:keys [heading url title tags note fetch?]}]
   (let [url-field (JTextField. (str url) 48)
         title-field (JTextField. (str title) 48)
-        tags-field (JTextField. (str/join ", " tags) 48)
+        tags-field (complete-tags! (JTextField. (str/join ", " tags) 48) true)
         note-field (doto (JTextArea. (str note) 4 48)
                      (.setLineWrap true)
                      (.setWrapStyleWord true)
@@ -684,7 +787,7 @@
     (.addActionListener fetch-button (reify java.awt.event.ActionListener (actionPerformed [_ _] (fetch!))))
     (.putClientProperty url-field "JTextField.placeholderText" "https://")
     (.putClientProperty title-field "JTextField.placeholderText" "optional; Fetch title reads the page's")
-    (.putClientProperty tags-field "JTextField.placeholderText" "comma separated; a / nests: Hardware/FPGA, To Read")
+    (.putClientProperty tags-field "JTextField.placeholderText" "comma separated; a / nests: Hardware/FPGA, To Read; Down lists tags")
     (.putClientProperty note-field "JTextField.placeholderText" (str "optional; Enter starts a line, " ok-key-name " is OK"))
     ;; mnemonics: Alt+letter (Ctrl+Option on macOS) jumps to a field or presses a button
     (doseq [[row label mnemonic comp extra] [[0 "URL" KeyEvent/VK_U url-field nil]
@@ -750,7 +853,7 @@
   below it move along."
   []
   (if-let [from (tag-in-focus)]
-    (let [field (JTextField. ^String from 40)
+    (let [field (complete-tags! (JTextField. ^String from 40) false)
           panel (doto (JPanel. (GridBagLayout.))
                   (.add (JLabel. (str "Rename \"" from "\" and every tag below it to:")) (gbc 0 0 1))
                   (.add field (gbc 0 1 1)))]
@@ -943,6 +1046,7 @@
                    (row "Enter" "OK; in the note, a new line")
                    (row ok-key-name "OK, from any field")
                    (row "Esc" "Cancel")
+                   (row "Down / Up" "In a tag field: list known tags, move in the list; Enter takes one, Esc closes it")
                    (row "Alt+letter" "The underlined field or button (Ctrl+Option on macOS)")])
          (section "Menus"
                   [(row "Menu bar" menu-bar)
