@@ -15,7 +15,7 @@
 #
 # The app folder: BOOKMARK2_APP_DIR, else :app-dir in
 # ~/.config/bookmark2/config.edn (script/install --app-dir writes it), else
-# ~/Applications.
+# ~/Applications/My_Apps.
 #
 # Files: writes target/ (gitignored) and <app folder>/Bookmark2.app.
 # It never touches the Dock.
@@ -84,7 +84,7 @@ app_dir="${BOOKMARK2_APP_DIR:-}"
 if [[ -z "$app_dir" && -f "$config" ]]; then
   app_dir="$(sed -n 's/.*:app-dir *"\([^"]*\)".*/\1/p' "$config" | head -1)"
 fi
-app_dir="${app_dir:-$HOME/Applications}"
+app_dir="${app_dir:-$HOME/Applications/My_Apps}"
 app_dir="${app_dir/#\~/$HOME}"
 app="$app_dir/$name.app"
 mkdir -p "$app_dir"

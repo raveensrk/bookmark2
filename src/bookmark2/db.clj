@@ -41,7 +41,7 @@
   "The config map, {} when the file is missing or unreadable:
 
       {:data    \"~/notes/links.rec\"            ; the database
-       :app-dir \"~/Applications\"}              ; where script/build_app installs"
+       :app-dir \"~/Applications/My_Apps\"}      ; where script/build_app installs"
   []
   (try
     (let [c (edn/read-string (slurp (config-file)))]

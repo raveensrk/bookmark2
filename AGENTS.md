@@ -36,8 +36,8 @@ that file. Nobody's personal data lives in this repo; only
 [`script/build_app`](script/build_app) builds the app with the JDK's own `jar`
 and `jpackage`, no build library. It updates `Bookmark2.app` in place in the
 app folder: `BOOKMARK2_APP_DIR`, else `:app-dir` in the config, else
-`~/Applications`. `main` needs `(:gen-class)`, because `jpackage` starts it as a
-Java class.
+`~/Applications/My_Apps`. `main` needs `(:gen-class)`, because `jpackage`
+starts it as a Java class.
 
 The icon's source is [`assets/icon/bookmark2.svg`](assets/icon/bookmark2.svg).
 After editing it, run [`script/make_icon`](script/make_icon) and commit the

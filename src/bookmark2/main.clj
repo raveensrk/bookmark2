@@ -106,7 +106,7 @@ WHERE THE DATA LIVES
   Default Data File... picks the default. script/install --data FILE sets it
   too. The config is a plain EDN map:
 
-    {:data \"~/notes/links.rec\" :app-dir \"~/Applications\"}
+    {:data \"~/notes/links.rec\" :app-dir \"~/Applications/My_Apps\"}
 
   examples/data.rec holds sample links: bookmark2 --data examples/data.rec
 

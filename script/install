@@ -12,7 +12,7 @@
 #   --data FILE     the database the app and the command use
 #                   (default without a config: ~/.local/share/bookmark2/data.rec)
 #   --app-dir DIR   where script/build_app installs Bookmark2.app on macOS
-#                   (default: ~/Applications)
+#                   (default: ~/Applications/My_Apps)
 #
 # Options:
 #   -h, --help   short help

@@ -79,7 +79,7 @@ line, with nothing named, uses `~/.local/share/bookmark2/data.rec`, and the
 first add creates it.
 
 On macOS, `script/build_app` builds a standalone `Bookmark2.app` that carries
-its own Java runtime and installs it in `~/Applications`
+its own Java runtime and installs it in `~/Applications/My_Apps`
 (`script/install --app-dir DIR` changes the folder).
 
 ## Usage
