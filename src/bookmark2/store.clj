@@ -61,10 +61,13 @@
   (mapv (fn [[path old new]] [path new old]) (reverse changes)))
 
 (defn- write-atomic
-  "Write through a temp file in the same folder, then rename over the target."
+  "Write through a temp file in the same folder, then rename over the target.
+  Missing folders are created first: a new user's first add makes
+  ~/.local/share/bookmark2/."
   [path ^String text]
   (let [target (.toPath (io/file (str path)))
         tmp (.resolveSibling target (str "." (.getFileName target) ".bookmark2.tmp"))]
+    (io/make-parents (io/file (str path)))
     (Files/write tmp (.getBytes text StandardCharsets/UTF_8) (make-array java.nio.file.OpenOption 0))
     (Files/move tmp target (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING
                                                    StandardCopyOption/ATOMIC_MOVE]))))

@@ -23,3 +23,10 @@
       (.delete f)
       (store/commit! [[path "" "new\n"]])
       (is (= "new\n" (slurp f))))))
+
+(deftest first-write-creates-missing-folders
+  ;; a new user's first add: ~/.local/share/bookmark2/ does not exist yet
+  (let [root (.toFile (java.nio.file.Files/createTempDirectory "store" (make-array java.nio.file.attribute.FileAttribute 0)))
+        path (str root "/not/there/yet/data.rec")]
+    (store/commit! [[path "" "first\n"]])
+    (is (= "first\n" (slurp path)))))
