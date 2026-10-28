@@ -1,0 +1,71 @@
+%rec: Link
+%doc: every link, bookmarks and the reading list, organized by tags (a / nests them)
+%key: Url
+
+Url: https://www.gnu.org/software/recutils/
+Title: GNU Recutils
+Tag: Software/Tools
+Note: the file format bookmark2 stores links in
+
+Url: https://www.formdev.com/flatlaf/
+Title: FlatLaf - Swing Look and Feel
+Tag: Software/Java
+
+Url: https://clojure.org/guides/getting_started
+Title: Clojure - Getting Started
+Tag: Software/Clojure
+Tag: To Read
+
+Url: https://clojure.org/reference/reader
+Title: Clojure - The Reader
+Tag: Software/Clojure
+
+Url: https://openjdk.org/jeps/454
+Title: JEP 454: Foreign Function & Memory API
+Tag: Software/Java
+Tag: Read
+
+Url: https://www.gnu.org/software/emacs/manual/
+Title: GNU Emacs Manual
+Tag: Software/Editors
+
+Url: https://neovim.io/doc/user/
+Title: Neovim User Documentation
+Tag: Software/Editors
+
+Url: https://riscv.org/specifications/
+Title: RISC-V Specifications
+Tag: Hardware/RISC-V
+Tag: To Read
+
+Url: https://www.fpga4fun.com/
+Title: fpga4fun.com - where FPGAs are fun
+Tag: Hardware/FPGA
+
+Url: https://www.nand2tetris.org/
+Title: Nand to Tetris
+Tag: Hardware
+Tag: Learning
+Note: build a computer from first principles
+
+Url: https://en.wikipedia.org/wiki/Plain_text
+Title: Plain text - Wikipedia
+Tag: Learning
+Tag: Read
+
+Url: https://www.gutenberg.org/
+Title: Project Gutenberg
+Tag: Reading/Books
+
+Url: https://www.openstreetmap.org/
+Title: OpenStreetMap
+Tag: Internet
+
+Url: https://archive.org/
+Title: Internet Archive
+Tag: Internet
+Tag: Reading/Books
+
+Url: https://xkcd.com/1205/
+Title: xkcd: Is It Worth the Time?
+Tag: To Read

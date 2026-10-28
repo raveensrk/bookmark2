@@ -1,0 +1,31 @@
+# Run the test suite on Linux with GNU recutils (librec) installed, so the
+# librec tests run too instead of skipping.
+name: test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - name: GNU recutils (librec)
+        run: sudo apt-get update && sudo apt-get install -y recutils
+
+      - uses: actions/setup-java@v6.1.0
+        with:
+          distribution: temurin
+          java-version: "25"
+
+      - uses: DeLaGuardo/setup-clojure@13.7.0
+        with:
+          cli: latest
+
+      - name: Tests
+        run: clojure -J-Djava.awt.headless=true -M:test
+
+      - name: The sample data is a valid recfile
+        run: recfix examples/data.rec

@@ -1,0 +1,12 @@
+{:paths ["src"]
+
+ ;; FlatLaf and its theme pack are the only libraries: Swing comes with the
+ ;; JDK, the small JSON writer is written here. GNU librec (data.rec) is a
+ ;; native library loaded at run time through FFM, not a dependency here.
+ :deps {org.clojure/clojure {:mvn/version "1.12.6"}
+        com.formdev/flatlaf {:mvn/version "3.7.2"}
+        com.formdev/flatlaf-intellij-themes {:mvn/version "3.7.2"}}
+
+ :aliases {:test {:extra-paths ["test"]
+                  :jvm-opts ["--enable-native-access=ALL-UNNAMED"]
+                  :main-opts ["-m" "bookmark2.test-main"]}}}

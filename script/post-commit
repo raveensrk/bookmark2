@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# post-commit: rebuild Bookmark2.app from the new commit and install it, in the background.
+#
+# Usage: script/post-commit   (git runs it: .git/hooks/post-commit forwards here)
+#
+# Runs only when the commit touched src/, assets/, deps.edn or script/build_app, and
+# only on macOS. It builds the committed tree (git archive HEAD), not the
+# working tree, so unstaged edits never reach the app. script/build_app
+# installs Bookmark2.app (see its help for the folder). It never touches the Dock.
+# The commit returns at once.
+#
+# Options:
+#   -h, --help   short help
+#   help         this text
+#
+# Env: BOOKMARK2_NO_INSTALL=1 skips it for one commit.
+# Files: .git/bookmark2-install/tree (the build), .git/bookmark2-install/log.
+# Set up once per clone:
+#   printf '#!/bin/sh\nexec "$(git rev-parse --show-toplevel)/script/post-commit"\n' > .git/hooks/post-commit
+#   chmod +x .git/hooks/post-commit
+set -euo pipefail
+
+case "${1:-}" in
+  -h|--help) sed -n '2,4s/^# \{0,1\}//p' "$0"; exit 0 ;;
+  help) sed -n '2,/^[^#]/s/^# \{0,1\}//p' "$0"; exit 0 ;;
+esac
+
+[[ -z "${BOOKMARK2_NO_INSTALL:-}" ]] || exit 0
+[[ "$(uname -s)" == Darwin ]] || exit 0
+git diff-tree --no-commit-id --name-only -r --root HEAD | grep -qE '^(src/|assets/|deps\.edn$|script/build_app$)' || exit 0
+
+work="$(cd "$(git rev-parse --git-dir)" && pwd)/bookmark2-install"
+commit="$(git rev-parse --short HEAD)"
+mkdir -p "$work"
+
+# detached from the commit: the build takes about 5 s
+nohup bash -c '
+  set -euo pipefail
+  echo "== $(date "+%Y-%m-%d %H:%M:%S") commit $2"
+  rm -rf "$1/tree" && mkdir -p "$1/tree"
+  git archive HEAD | tar -x -C "$1/tree"
+  "$1/tree/script/build_app"
+  echo "== done"
+' _ "$work" "$commit" > "$work/log" 2>&1 &
+
+echo "bookmark2: installing Bookmark2.app from $commit in the background (log: .git/bookmark2-install/log)"

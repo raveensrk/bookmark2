@@ -1,0 +1,8 @@
+.cpcache/
+.nrepl-port
+*.bookmark2.tmp
+target/
+
+# your links live outside the repo (see script/install --data); never commit one,
+# nor a scratch copy like try.rec (examples/data.rec is the only tracked .rec)
+/*.rec

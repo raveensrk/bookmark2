@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Launcher: runs bookmark2 from this checkout with the Clojure CLI.
+# The app prints the help: -h and --help the short one, help the long one.
+set -euo pipefail
+
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+
+# the app resolves a relative --data against the caller's folder
+export BOOKMARK2_CWD="$PWD"
+
+case "${1:-}" in
+  # print-only calls: headless, so macOS shows no dock icon for them
+  # (native access: they read data.rec through librec)
+  -h|--help|help|list|read|add)
+    jvm=(-J-Djava.awt.headless=true -J--enable-native-access=ALL-UNNAMED)
+    ;;
+  # the window: native access for FlatLaf's helper and for librec
+  *)
+    jvm=(-J--enable-native-access=ALL-UNNAMED)
+    if [[ "$(uname -s)" == Darwin ]]; then
+      jvm+=(-J-Xdock:name=Bookmark2)
+    fi
+    ;;
+esac
+
+cd "$repo"
+exec clojure "${jvm[@]}" -M -m bookmark2.main "$@"

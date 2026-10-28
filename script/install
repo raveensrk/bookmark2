@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# Put a bookmark2 command on the PATH, and optionally say where your data lives.
+#
+# Usage: script/install [--data FILE] [--app-dir DIR]
+#
+# Writes ~/.local/bin/bookmark2, a two-line wrapper (no symlink) that execs
+# bin/bookmark2 from this checkout, so edits here take effect without
+# reinstalling. Run it again after moving the checkout.
+#
+# With --data or --app-dir it also writes them into
+# ~/.config/bookmark2/config.edn (other keys there are kept):
+#   --data FILE     the database the app and the command use
+#                   (default without a config: ~/.local/share/bookmark2/data.rec)
+#   --app-dir DIR   where script/build_app installs Bookmark2.app on macOS
+#                   (default: ~/Applications)
+#
+# Options:
+#   -h, --help   short help
+#   help         this text
+#
+# Example: script/install --data ~/notes/links.rec
+# Files: writes ~/.local/bin/bookmark2 and, with an option, the config file.
+# Exit codes: 0 installed, 2 bad call.
+set -euo pipefail
+
+data=""
+app_dir=""
+while [ "$#" -ne 0 ]; do
+  case "$1" in
+    -h|--help) sed -n '2,4s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    help) sed -n '2,/^[^#]/s/^# \{0,1\}//p' "$0"; exit 0 ;;
+    --data) data="${2:?--data needs a FILE}"; shift ;;
+    --app-dir) app_dir="${2:?--app-dir needs a DIR}"; shift ;;
+    *) echo "install: unknown argument $1" >&2; sed -n '2,4s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+bin_dir="$HOME/.local/bin"
+target="$bin_dir/bookmark2"
+
+mkdir -p "$bin_dir"
+printf '#!/usr/bin/env bash\n# bookmark2: written by %s/script/install; runs that checkout.\nexec "%s/bin/bookmark2" "$@"\n' \
+  "$repo" "$repo" > "$target.tmp"
+chmod +x "$target.tmp"
+mv "$target.tmp" "$target"
+echo "installed $target -> $repo/bin/bookmark2"
+
+if [[ -n "$data$app_dir" ]]; then
+  config="${XDG_CONFIG_HOME:-$HOME/.config}/bookmark2/config.edn"
+  mkdir -p "$(dirname "$config")"
+  # merge into the existing map, so keys this script does not know survive
+  (cd "$repo" && clojure -M -e "
+    (let [f \"$config\"
+          old (try (clojure.edn/read-string (slurp f)) (catch Exception _ {}))
+          new (cond-> (if (map? old) old {})
+                (seq \"$data\") (assoc :data \"$data\")
+                (seq \"$app_dir\") (assoc :app-dir \"$app_dir\"))]
+      (spit f (str (pr-str new) \"\\n\"))
+      (println \"wrote\" f new))")
+fi

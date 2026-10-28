@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+# Render the app icon from assets/icon/bookmark2.svg into the files the build uses.
+#
+# Usage: script/make_icon
+#
+#   assets/icon/Bookmark2.icns   macOS (every iconset size, 16 to 1024 px)
+#   assets/icon/bookmark2.png    Linux (512 px)
+#
+# Run it after editing the SVG and commit the outputs: script/build_app reads
+# them as they are, so a build never needs rsvg-convert.
+#
+# Options:
+#   -h, --help   short help
+#   help         this text
+#
+# Needs: rsvg-convert (brew install librsvg) and iconutil (macOS).
+# Exit codes: 0 written, 1 a tool failed, 2 bad call.
+set -euo pipefail
+
+case "${1:-}" in
+  -h|--help) sed -n '2,4s/^# \{0,1\}//p' "$0"; exit 0 ;;
+  help) sed -n '2,/^[^#]/s/^# \{0,1\}//p' "$0"; exit 0 ;;
+  "") ;;
+  *) echo "make_icon: unknown argument $1" >&2; sed -n '2,4s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
+esac
+
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+dir="$repo/assets/icon"
+svg="$dir/bookmark2.svg"
+work="$(mktemp -d "$HOME/tmp/bookmark2_icon.XXXXXX")"
+iconset="$work/Bookmark2.iconset"
+mkdir -p "$iconset"
+
+# iconutil wants these exact names: icon_<size>x<size>[@2x].png
+for size in 16 32 128 256 512; do
+  rsvg-convert -w "$size" -h "$size" "$svg" -o "$iconset/icon_${size}x${size}.png"
+  rsvg-convert -w $((size * 2)) -h $((size * 2)) "$svg" -o "$iconset/icon_${size}x${size}@2x.png"
+done
+iconutil -c icns "$iconset" -o "$dir/Bookmark2.icns"
+rsvg-convert -w 512 -h 512 "$svg" -o "$dir/bookmark2.png"
+
+rm -rf "$work"
+echo "wrote $dir/Bookmark2.icns and $dir/bookmark2.png"

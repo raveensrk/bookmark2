@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Bookmark2 app icon: two bookmark ribbons, the "2", on a dark macOS-style tile.
+       The tile is 824 px inside a 1024 canvas, as macOS app icons are drawn.
+       Regenerate the .icns with script/make_icon. -->
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b3140"/>
+      <stop offset="1" stop-color="#121419"/>
+    </linearGradient>
+    <linearGradient id="front" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#6aa8ff"/>
+      <stop offset="1" stop-color="#2e6be0"/>
+    </linearGradient>
+    <linearGradient id="back" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#4fd6b8"/>
+      <stop offset="1" stop-color="#1c8f78"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <!-- tile -->
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#tile)"/>
+  <rect x="101" y="101" width="822" height="822" rx="184" fill="none" stroke="#ffffff" stroke-opacity="0.08" stroke-width="2"/>
+
+  <!-- back ribbon (teal), up and to the right -->
+  <path filter="url(#shadow)" fill="url(#back)"
+        d="M 452 232 H 676 Q 704 232 704 260 V 676 L 564 584 L 424 676 V 260 Q 424 232 452 232 Z"/>
+
+  <!-- front ribbon (blue) -->
+  <path filter="url(#shadow)" fill="url(#front)"
+        d="M 350 312 H 590 Q 620 312 620 342 V 792 L 470 692 L 320 792 V 342 Q 320 312 350 312 Z"/>
+
+  <!-- soft highlight down the front ribbon's left edge -->
+  <path fill="#ffffff" fill-opacity="0.14"
+        d="M 350 312 H 392 V 744 L 320 792 V 342 Q 320 312 350 312 Z"/>
+</svg>

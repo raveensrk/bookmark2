@@ -1,0 +1,94 @@
+#!/usr/bin/env bash
+# Build Bookmark2 as a standalone app with the JDK's own jar and jpackage.
+#
+# Usage: script/build_app [--no-install]
+#
+#   1. AOT-compile the app into target/classes
+#   2. jar it with a manifest whose Class-Path names Clojure and FlatLaf
+#   3. jpackage an app image with its own trimmed Java runtime (no JDK needed to run)
+#   4. macOS: update Bookmark2.app in the app folder, in place (rsync)
+#
+# Options:
+#   --no-install   build into target/dist only
+#   -h, --help     short help
+#   help           this text
+#
+# The app folder: BOOKMARK2_APP_DIR, else :app-dir in
+# ~/.config/bookmark2/config.edn (script/install --app-dir writes it), else
+# ~/Applications.
+#
+# Files: writes target/ (gitignored) and <app folder>/Bookmark2.app.
+# It never touches the Dock.
+# Exit codes: 0 built, 1 a build step failed, 2 bad call.
+set -euo pipefail
+
+case "${1:-}" in
+  -h|--help) sed -n '2,4s/^# \{0,1\}//p' "$0"; exit 0 ;;
+  help) sed -n '2,/^[^#]/s/^# \{0,1\}//p' "$0"; exit 0 ;;
+  --no-install|"") ;;
+  *) echo "build_app: unknown argument $1" >&2; sed -n '2,4s/^# \{0,1\}//p' "$0" >&2; exit 2 ;;
+esac
+
+repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+target="$repo/target"
+name="Bookmark2"
+version="1.0.0"
+
+cd "$repo"
+rm -rf "$target"
+mkdir -p "$target/classes" "$target/input" "$target/dist"
+
+echo "1/4 AOT compile"
+clojure -M -e "(binding [*compile-path* \"$target/classes\"] (compile 'bookmark2.main) (compile 'bookmark2.ui) nil)"
+
+echo "2/4 jar"
+classpath=()
+while IFS= read -r entry; do
+  [[ "$entry" == *.jar ]] || continue
+  cp "$entry" "$target/input/"
+  classpath+=("$(basename "$entry")")
+done < <(clojure -Spath | tr ':' '\n')
+{
+  echo "Main-Class: bookmark2.main"
+  echo "Class-Path: ${classpath[*]}"
+} > "$target/manifest.txt"
+jar --create --file "$target/input/bookmark2.jar" --manifest "$target/manifest.txt" -C "$target/classes" .
+
+echo "3/4 jpackage"
+# per-OS options; the icon comes from assets/icon (script/make_icon renders it)
+mac=()
+case "$(uname -s)" in
+  Darwin) mac=(--mac-package-identifier io.github.raveensrk.bookmark2 --mac-package-name "$name"
+               --icon "$repo/assets/icon/Bookmark2.icns") ;;
+  Linux) mac=(--icon "$repo/assets/icon/bookmark2.png") ;;
+esac
+jpackage --type app-image \
+  --name "$name" \
+  --app-version "$version" \
+  --input "$target/input" \
+  --main-jar bookmark2.jar \
+  --main-class bookmark2.main \
+  --dest "$target/dist" \
+  --java-options "--enable-native-access=ALL-UNNAMED" \
+  --add-modules java.base,java.desktop,java.net.http,java.logging,java.management,java.naming,java.sql,jdk.unsupported \
+  "${mac[@]}"
+
+if [[ "${1:-}" == --no-install || "$(uname -s)" != Darwin ]]; then
+  echo "4/4 skipped install: $target/dist"
+  exit 0
+fi
+
+echo "4/4 install"
+config="${XDG_CONFIG_HOME:-$HOME/.config}/bookmark2/config.edn"
+app_dir="${BOOKMARK2_APP_DIR:-}"
+if [[ -z "$app_dir" && -f "$config" ]]; then
+  app_dir="$(sed -n 's/.*:app-dir *"\([^"]*\)".*/\1/p' "$config" | head -1)"
+fi
+app_dir="${app_dir:-$HOME/Applications}"
+app_dir="${app_dir/#\~/$HOME}"
+app="$app_dir/$name.app"
+mkdir -p "$app_dir"
+# Updated in place, never moved: whatever holds this path (Finder, Spotlight,
+# a pinned tile you add yourself) keeps finding it.
+rsync -a --delete "$target/dist/$name.app/" "$app/"
+echo "installed $app"
