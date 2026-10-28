@@ -25,7 +25,8 @@ jobs:
           cli: latest
 
       - name: Tests
-        run: clojure -J-Djava.awt.headless=true -M:test
+        # the runner sets XDG_*; without them the fresh-start test runs too
+        run: env -u XDG_CONFIG_HOME -u XDG_DATA_HOME -u BOOKMARK2_DATA clojure -J-Djava.awt.headless=true -M:test
 
       - name: The sample data is a valid recfile
         run: recfix examples/data.rec
