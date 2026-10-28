@@ -43,7 +43,7 @@
            (java.awt.event KeyAdapter KeyEvent MouseAdapter WindowAdapter)
            (javax.swing AbstractAction Action BorderFactory JButton JComponent
                         JEditorPane JFileChooser JFrame JLabel JList JMenu JMenuBar JMenuItem JOptionPane JPanel
-                        JPopupMenu JScrollPane JSplitPane JTable JTextField JToolBar JTree KeyStroke
+                        JPopupMenu JScrollPane JSplitPane JTable JTextArea JTextField JToolBar JTree KeyStroke
                         ListSelectionModel MenuElement MenuSelectionManager SwingUtilities UIManager)
            (javax.swing.event DocumentListener)
            (javax.swing.filechooser FileNameExtensionFilter)
@@ -618,14 +618,14 @@
 
 ;; ---------------------------------------------------------------- forms
 
-(defn- gbc [x y weight & {:keys [width] :or {width 1}}]
+(defn- gbc [x y weight & {:keys [width anchor] :or {width 1 anchor GridBagConstraints/WEST}}]
   (let [c (GridBagConstraints.)]
     (set! (.gridx c) x)
     (set! (.gridy c) y)
     (set! (.gridwidth c) width)
     (set! (.weightx c) (double weight))
     (set! (.fill c) GridBagConstraints/HORIZONTAL)
-    (set! (.anchor c) GridBagConstraints/WEST)
+    (set! (.anchor c) (int anchor))
     (set! (.insets c) (Insets. 4 4 4 4))
     c))
 
@@ -640,11 +640,18 @@
   [s]
   (db/clean-tags (str/split (str s) #",")))
 
+(def ok-key "OK from anywhere in a form, the multi-line note included."
+  (if (os/mac?) "meta ENTER" "ctrl ENTER"))
+(def ok-key-name (if (os/mac?) "Cmd+Enter" "Ctrl+Enter"))
+
 (defn- show-form
   "A modal OK/Cancel dialog around panel, focus in first. True on OK."
   [heading ^JPanel panel ^JComponent first]
   (let [pane (JOptionPane. panel JOptionPane/PLAIN_MESSAGE JOptionPane/OK_CANCEL_OPTION)
         dialog (.createDialog pane (:frame @widgets) heading)]
+    (.put (.getInputMap pane JComponent/WHEN_ANCESTOR_OF_FOCUSED_COMPONENT) (KeyStroke/getKeyStroke ^String ok-key) "ok")
+    (.put (.getActionMap pane) "ok" (proxy [AbstractAction] []
+                                      (actionPerformed [_] (.setValue pane (int JOptionPane/OK_OPTION)))))
     (.addWindowListener dialog (proxy [WindowAdapter] []
                                  (windowOpened [_] (.requestFocusInWindow first))))
     (.setVisible dialog true)
@@ -657,7 +664,12 @@
   (let [url-field (JTextField. (str url) 48)
         title-field (JTextField. (str title) 48)
         tags-field (JTextField. (str/join ", " tags) 48)
-        note-field (JTextField. (str note) 48)
+        note-field (doto (JTextArea. (str note) 4 48)
+                     (.setLineWrap true)
+                     (.setWrapStyleWord true)
+                     ;; Tab leaves the note, Enter starts a new line
+                     (.setFocusTraversalKeys KeyboardFocusManager/FORWARD_TRAVERSAL_KEYS nil)
+                     (.setFocusTraversalKeys KeyboardFocusManager/BACKWARD_TRAVERSAL_KEYS nil))
         fetch-button (doto (JButton. "Fetch title") (.setMnemonic KeyEvent/VK_E))
         note-label (JLabel. " ")
         panel (JPanel. (GridBagLayout.))
@@ -673,7 +685,7 @@
     (.putClientProperty url-field "JTextField.placeholderText" "https://")
     (.putClientProperty title-field "JTextField.placeholderText" "optional; Fetch title reads the page's")
     (.putClientProperty tags-field "JTextField.placeholderText" "comma separated; a / nests: Hardware/FPGA, To Read")
-    (.putClientProperty note-field "JTextField.placeholderText" "optional")
+    (.putClientProperty note-field "JTextField.placeholderText" (str "optional; Enter starts a line, " ok-key-name " is OK"))
     ;; mnemonics: Alt+letter (Ctrl+Option on macOS) jumps to a field or presses a button
     (doseq [[row label mnemonic comp extra] [[0 "URL" KeyEvent/VK_U url-field nil]
                                              [1 "Title" KeyEvent/VK_T title-field fetch-button]
@@ -682,8 +694,8 @@
       (.add panel (doto (JLabel. ^String label)
                     (.setDisplayedMnemonic (int mnemonic))
                     (.setLabelFor comp))
-            (gbc 0 row 0))
-      (.add panel ^JComponent comp (gbc 1 row 1))
+            (gbc 0 row 0 :anchor GridBagConstraints/NORTHWEST))
+      (.add panel (if (= comp note-field) (JScrollPane. ^JComponent comp) ^JComponent comp) (gbc 1 row 1))
       (when extra (.add panel ^JComponent extra (gbc 2 row 0))))
     (.add panel note-label (gbc 0 4 1 :width 3))
     (when (and fetch? (str/blank? title)) (fetch!))
@@ -928,7 +940,8 @@
                                       (row (str/join " or " (map pretty-key ks)) d)))))
          (section "Dialogs"
                   [(row "Tab / Shift+Tab" "Next, previous field")
-                   (row "Enter" "OK")
+                   (row "Enter" "OK; in the note, a new line")
+                   (row ok-key-name "OK, from any field")
                    (row "Esc" "Cancel")
                    (row "Alt+letter" "The underlined field or button (Ctrl+Option on macOS)")])
          (section "Menus"

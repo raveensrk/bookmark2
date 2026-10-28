@@ -67,6 +67,19 @@
                                  {:url "https://nohello.net/en/" :title "no hello" :tags ["Writing/Questioning"] :note ""}))]
     (is (= [nil "no hello" ["Writing/Questioning"]] ((juxt :note :title :tags) (second (:links out)))))))
 
+(deftest multiline-note
+  (let [note "first line  \r\n\n  indented\nlast\n\n"
+        changes (db/plan-add (base) {:url "https://m.dev/" :note note})]
+    (is (= "first line\n\n  indented\nlast" (db/clean-note note)))
+    (is (= "first line\n\n  indented\nlast" (:note (last (:links (after changes))))))
+    (is (str/includes? (nth (first changes) 2) "Note: first line\n+ \n+   indented\n+ last\n"))
+    (when (zero? (:exit (sh "sh" "-c" "command -v recins")))
+      (let [f (doto (java.io.File/createTempFile "data" ".rec") .deleteOnExit)]
+        (spit f sample)
+        (sh "recins" "-t" "Link" "-f" "Url" "-v" "https://m.dev/" "-f" "Tag" "-v" "To Read"
+            "-f" "Note" "-v" "first line\n\n  indented\nlast" (str f))
+        (is (= (slurp f) (nth (first changes) 2)))))))
+
 (deftest rename-subtree
   (let [out (after (db/plan-rename-tag (base) "Hardware" "Tech/Hardware"))]
     (is (= [["Tech/Hardware/FPGA" "To Read"] ["Questioning"] ["Tech/Hardware/RISC-V"]] (mapv :tags (:links out)))))

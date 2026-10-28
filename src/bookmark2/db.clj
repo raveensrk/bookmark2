@@ -149,13 +149,23 @@
 
 ;; ---------------------------------------------------------------- planning
 
+(defn clean-note
+  "A note keeps its lines: CRLF -> LF, trailing spaces off each line, blank
+  lines at either end dropped. librec writes the extra lines as + lines."
+  [note]
+  (->> (str/split-lines (str note))
+       (map str/trimr)
+       (drop-while str/blank?)
+       reverse (drop-while str/blank?) reverse
+       (str/join "\n")))
+
 (defn- fields
   "A Link record's fields, in this order: Url Title Tag... Note."
   [{:keys [url title tags note]}]
   (vec (concat [["Url" url]]
                (when-not (str/blank? title) [["Title" (store/clean-title title)]])
                (map (fn [t] ["Tag" t]) (clean-tags tags))
-               (when-not (str/blank? note) [["Note" (str/trim (str/replace note #"\s+" " "))]]))))
+               (when-not (str/blank? note) [["Note" (clean-note note)]]))))
 
 (defn- check-url [url]
   (when-not (re-matches #"https?://\S+" url)

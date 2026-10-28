@@ -60,6 +60,7 @@ THE DATABASE
     Tag: Hardware/FPGA
     Tag: To Read
     Note: visual editor
+    + each further line of a note starts with +
 
   The reading list is two tags, To Read and Read. Writes are the bytes recins
   would write, and every write checks the file still holds what was read; if
