@@ -48,15 +48,45 @@
       (if (map? c) c {}))
     (catch Exception _ {})))
 
-(defn default-path
-  "BOOKMARK2_DATA, else :data in the config file, else
-  $XDG_DATA_HOME/bookmark2/data.rec (default ~/.local/share/bookmark2/data.rec)."
+(defn fallback-path
+  "$XDG_DATA_HOME/bookmark2/data.rec (default ~/.local/share/bookmark2/data.rec):
+  the database when nothing names one."
   []
-  (store/expand-home
-   (or (not-empty (System/getenv "BOOKMARK2_DATA"))
-       (not-empty (str (:data (config))))
-       (str (or (not-empty (System/getenv "XDG_DATA_HOME")) (str (store/home) "/.local/share"))
-            "/bookmark2/data.rec"))))
+  (str (or (not-empty (System/getenv "XDG_DATA_HOME")) (str (store/home) "/.local/share"))
+       "/bookmark2/data.rec"))
+
+(defn chosen-path
+  "The database someone named: BOOKMARK2_DATA, else :data in the config file.
+  nil when neither is set."
+  []
+  (some-> (or (not-empty (System/getenv "BOOKMARK2_DATA"))
+              (not-empty (str (:data (config)))))
+          store/expand-home))
+
+(defn default-path
+  "BOOKMARK2_DATA, else :data in the config file, else the fallback path."
+  []
+  (or (chosen-path) (fallback-path)))
+
+(defn needs-choice?
+  "A fresh start: no database named anywhere and none at the fallback path.
+  The window then asks for one instead of starting empty."
+  []
+  (and (nil? (chosen-path)) (not (.exists (io/file (fallback-path))))))
+
+(defn set-default!
+  "Make path the database: :data in the config file, other keys kept."
+  [path]
+  (let [f (config-file)]
+    (io/make-parents f)
+    (spit f (str (pr-str (assoc (config) :data (store/short-path path))) "\n"))))
+
+(defn create-file!
+  "Start a new database at path, the header and no links. Nothing when the
+  file already exists."
+  [path]
+  (when-not (.exists (io/file (str path)))
+    (store/commit! [[(str path) "" header]])))
 
 ;; ---------------------------------------------------------------- tags
 
@@ -103,12 +133,14 @@
                         :note (first (values fields "Note"))}))}))))
 
 (defn load-db
-  "The database at path, or an empty one when the file does not exist yet."
+  "The database at path, or an empty one when the file does not exist yet or
+  is blank (its first add writes the header)."
   [path]
-  (if (.exists (io/file (str path)))
-    (or (parse path (store/read-text path))
-        (store/fail :rec-parse (str (store/short-path path) " has no %rec: Link set.")))
-    {:path (str path) :short (store/short-path path) :text "" :links []}))
+  (let [text (if (.exists (io/file (str path))) (store/read-text path) "")]
+    (if (str/blank? text)
+      {:path (str path) :short (store/short-path path) :text text :links []}
+      (or (parse path text)
+          (store/fail :rec-parse (str (store/short-path path) " has no %rec: Link set."))))))
 
 (defn find-duplicate [db url & {:keys [except]}]
   (let [want (store/normalize url)]

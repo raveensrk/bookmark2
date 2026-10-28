@@ -11,7 +11,7 @@ that file. Nobody's personal data lives in this repo; only
 
 ## Layout
 
-- [`src/bookmark2/db.clj`](src/bookmark2/db.clj) - finding the database (`--data`, `BOOKMARK2_DATA`, `~/.config/bookmark2/config.edn`, then `~/.local/share/bookmark2/data.rec`), reading it, and planning changes: add, edit, tags, read toggle, rename a tag subtree. No Swing.
+- [`src/bookmark2/db.clj`](src/bookmark2/db.clj) - finding the database (`--data`, `BOOKMARK2_DATA`, `~/.config/bookmark2/config.edn`, then `~/.local/share/bookmark2/data.rec`; with none of them, the window asks), setting the default, reading it, and planning changes: add, edit, tags, read toggle, rename a tag subtree. No Swing.
 - [`src/bookmark2/store.clj`](src/bookmark2/store.clj) - `commit!`, which refuses when the file changed on disk, plus undo and url normalizing.
 - [`src/bookmark2/rec.clj`](src/bookmark2/rec.clj) - GNU librec, called through Java's FFM API with no binding library, loaded at run time.
 - [`src/bookmark2/ui.clj`](src/bookmark2/ui.clj) - the window: the tag tree on the left, links folded by tag on the right, and themes. All state is in the `state` atom.

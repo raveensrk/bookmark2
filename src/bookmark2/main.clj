@@ -96,8 +96,14 @@ THEMES
 
 WHERE THE DATA LIVES
   --data FILE, else BOOKMARK2_DATA, else :data in ~/.config/bookmark2/config.edn,
-  else ~/.local/share/bookmark2/data.rec (created on the first add). Set it once
-  with script/install --data FILE. The config is a plain EDN map:
+  else ~/.local/share/bookmark2/data.rec (created on the first add).
+
+  On a fresh start, with none of those set and no file at the last place, the
+  window asks you to create a new data.rec or open an existing one, and makes
+  it the default (:data in the config). File > Open Data File... shows another
+  file in this window only; File > New Data File... creates one; File > Change
+  Default Data File... picks the default. script/install --data FILE sets it
+  too. The config is a plain EDN map:
 
     {:data \"~/notes/links.rec\" :app-dir \"~/Applications\"}
 
@@ -112,7 +118,7 @@ ENVIRONMENT
 
 FILES
   reads, writes   the database (see WHERE THE DATA LIVES)
-  reads           ~/.config/bookmark2/config.edn
+  reads, writes   ~/.config/bookmark2/config.edn (the window writes :data)
   writes          " (log/log-file) "   (one JSON object per line)
   writes          folds.edn and view.edn in the same folder
 
@@ -208,4 +214,6 @@ EXIT CODES
              {:name "bookmark2" :port port :address "127.0.0.1" :accept 'clojure.core.server/repl})
             (log/event :repl :port port)
             (binding [*out* *err*] (println (str "bookmark2: socket REPL on 127.0.0.1:" port)))))
-        ((requiring-resolve 'bookmark2.ui/start!) {:data-path path})))))
+        ;; a fresh start (no file named, none at the default place): the window asks
+        ((requiring-resolve 'bookmark2.ui/start!)
+         {:data-path (when-not (and (str/blank? data) (db/needs-choice?)) path)})))))

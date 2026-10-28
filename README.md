@@ -72,7 +72,10 @@ bookmark2 add https://example.com -t Reading/Articles
 bookmark2 read                              # what is tagged To Read
 ```
 
-Without `--data`, the app uses `~/.local/share/bookmark2/data.rec`, and the
+Started fresh, with no file named, the window asks you to create a new
+`data.rec` or open one you have, and remembers it as the default. The File
+menu opens another file, creates one, or changes the default. The command
+line, with nothing named, uses `~/.local/share/bookmark2/data.rec`, and the
 first add creates it.
 
 On macOS, `script/build_app` builds a standalone `Bookmark2.app` that carries

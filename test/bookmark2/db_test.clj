@@ -4,6 +4,7 @@
   (:require [bookmark2.db :as db]
             [bookmark2.rec :as rec]
             [bookmark2.store :as store]
+            [clojure.java.io :as io]
             [clojure.java.shell :refer [sh]]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]))
@@ -78,3 +79,37 @@
     (is (str/starts-with? (slurp path) db/header))
     (is (= [["https://first.dev/" ["To Read"]]] (mapv (juxt :url :tags) (:links (db/load-db path)))))
     (.delete (java.io.File. path))))
+
+(deftest fresh-start-and-default
+  ;; a pretend home; skipped when the environment names the places itself
+  (if (some #(System/getenv %) ["BOOKMARK2_DATA" "XDG_CONFIG_HOME" "XDG_DATA_HOME"])
+    (println "SKIP fresh-start-and-default: BOOKMARK2_DATA or XDG_* is set")
+    (let [old-home (System/getProperty "user.home")
+          home (str (java.nio.file.Files/createTempDirectory "home" (make-array java.nio.file.attribute.FileAttribute 0)))]
+      (try
+        (System/setProperty "user.home" home)
+        (testing "nothing named, nothing at the fallback: the window must ask"
+          (is (db/needs-choice?))
+          (is (= (str home "/.local/share/bookmark2/data.rec") (db/default-path))))
+        (testing "a new file has the header and no links, and becomes the default"
+          (let [path (str home "/links/data.rec")]
+            (db/create-file! path)
+            (is (= db/header (slurp path)))
+            (is (= [] (:links (db/load-db path))))
+            (doto (db/config-file) io/make-parents (spit "{:app-dir \"~/Apps\"}"))
+            (db/set-default! path)
+            (is (= {:app-dir "~/Apps" :data "~/links/data.rec"} (db/config)))
+            (is (= path (db/default-path)))
+            (is (not (db/needs-choice?)))))
+        (testing "create-file! leaves an existing file alone"
+          (let [path (str home "/links/data.rec")]
+            (spit path (str db/header "\nUrl: https://kept.dev/\n"))
+            (db/create-file! path)
+            (is (= ["https://kept.dev/"] (mapv :url (:links (db/load-db path)))))))
+        (testing "a blank file opens empty, and the first add writes the header"
+          (let [path (str home "/blank.rec")]
+            (spit path "\n")
+            (is (= [] (:links (db/load-db path))))
+            (store/commit! (db/plan-add (db/load-db path) {:url "https://first.dev/" :title "First"}))
+            (is (str/starts-with? (slurp path) db/header))))
+        (finally (System/setProperty "user.home" old-home))))))

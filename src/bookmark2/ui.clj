@@ -42,10 +42,11 @@
            (java.awt.datatransfer DataFlavor StringSelection)
            (java.awt.event KeyAdapter KeyEvent MouseAdapter WindowAdapter)
            (javax.swing AbstractAction Action BorderFactory JButton JComponent
-                        JEditorPane JFrame JLabel JList JMenu JMenuBar JMenuItem JOptionPane JPanel
+                        JEditorPane JFileChooser JFrame JLabel JList JMenu JMenuBar JMenuItem JOptionPane JPanel
                         JPopupMenu JScrollPane JSplitPane JTable JTextField JToolBar JTree KeyStroke
                         ListSelectionModel MenuElement MenuSelectionManager SwingUtilities UIManager)
            (javax.swing.event DocumentListener)
+           (javax.swing.filechooser FileNameExtensionFilter)
            (javax.swing.table AbstractTableModel DefaultTableCellRenderer)
            (javax.swing.tree DefaultMutableTreeNode DefaultTreeModel TreePath TreeSelectionModel)))
 
@@ -353,6 +354,91 @@
 (defn- reveal-file! []
   (let [path (:data-path @state)]
     (in-background #(os/reveal! path) (fn [_] (status! (str "Revealed " (store/short-path path)))))))
+
+;; ---------------------------------------------------------------- data files
+
+(defn- show-path!
+  "The window title names the file shown, and says when it is not the default."
+  []
+  (let [path (:data-path @state)]
+    (.setTitle ^JFrame (:frame @widgets)
+               (str app-name " - " (store/short-path path)
+                    (when (not= path (db/default-path)) "  (not the default)")))))
+
+(defn- pick-file
+  "A file chooser for a database: :open an existing one, :new a file to
+  create (.rec is added when missing). Starts at start. A File, or nil."
+  [mode ^java.io.File start]
+  (let [ch (doto (JFileChooser.)
+             (.setDialogTitle (if (= mode :new) "New data file" "Open data file"))
+             (.setFileFilter (FileNameExtensionFilter. "recutils files (*.rec)" (into-array String ["rec"])))
+             (.setSelectedFile start))
+        frame (:frame @widgets)]
+    (when (= JFileChooser/APPROVE_OPTION
+             (if (= mode :new) (.showSaveDialog ch frame) (.showOpenDialog ch frame)))
+      (let [f (.getSelectedFile ch)]
+        (if (and (= mode :new) (not (str/ends-with? (.getName f) ".rec")))
+          (io/file (str f ".rec"))
+          f)))))
+
+(defn- use-file!
+  "Show the database at path: create it first when create?, make it the
+  default when default?. A file that is no database is refused before
+  anything changes."
+  [path {:keys [create? default?]}]
+  (let [path (str path)
+        existed? (.exists (io/file path))]
+    (when create? (db/create-file! path))
+    (let [d (db/load-db path)]
+      (when default? (db/set-default! path))
+      (swap! state assoc :data-path path :db d :scope nil :undo [])
+      (log/event :data :path path :created (and create? (not existed?)) :default (boolean default?))
+      (show-path!)
+      (db-changed!)
+      (status! (str (cond (and create? (not existed?)) "Created " :else "Opened ") (store/short-path path)
+                    (cond
+                      (and default? (System/getenv "BOOKMARK2_DATA"))
+                      ". It is the default in the config, but BOOKMARK2_DATA wins while it is set."
+                      default? ", now the default."
+                      (not= path (db/default-path)) " for this window; the default is unchanged."
+                      :else "."))))))
+
+(defn new-data-file! []
+  (when-let [f (pick-file :new (io/file (store/home) "data.rec"))]
+    (use-file! f {:create? true})))
+
+(defn open-data-file! []
+  (when-let [f (pick-file :open (io/file (:data-path @state)))]
+    (use-file! f {})))
+
+(defn change-default! []
+  (when-let [f (pick-file :open (io/file (:data-path @state)))]
+    (use-file! f {:default? true})))
+
+(defn- first-start!
+  "No database named and none at the default place: ask for a new file or an
+  existing one, and make it the default. Quit leaves without writing."
+  []
+  (let [options (into-array String ["Create New..." "Open Existing..." "Quit"])]
+    (loop []
+      (let [choice (JOptionPane/showOptionDialog
+                    (:frame @widgets)
+                    (str "<html>Bookmark2 keeps your links in one recutils file, data.rec.<br><br>"
+                         "Create a new one, or open one you already have?<br>"
+                         "The file becomes the default; File > Change Default Data File... changes it.</html>")
+                    app-name JOptionPane/YES_NO_CANCEL_OPTION JOptionPane/QUESTION_MESSAGE nil
+                    options (aget options 0))
+            f (case choice
+                0 (pick-file :new (io/file (store/home) "data.rec"))
+                1 (pick-file :open (io/file (store/home)))
+                (System/exit 0))
+            done? (when f
+                    (try (use-file! f {:create? (= choice 0) :default? true}) true
+                         (catch clojure.lang.ExceptionInfo e
+                           (JOptionPane/showMessageDialog (:frame @widgets) (ex-message e) app-name
+                                                          JOptionPane/WARNING_MESSAGE)
+                           false)))]
+        (when-not done? (recur))))))
 
 ;; ---------------------------------------------------------------- moving around
 
@@ -988,7 +1074,11 @@
                (.setBorder (BorderFactory/createEmptyBorder 4 10 4 10))
                (.setForeground (UIManager/getColor "Label.disabledForeground")))
         shift KeyEvent/SHIFT_DOWN_MASK
+        alt KeyEvent/ALT_DOWN_MASK
         actions {:add (action "Add Link..." (menu-key KeyEvent/VK_N) add!)
+                 :new-data (action "New Data File..." (menu-key KeyEvent/VK_N alt) new-data-file!)
+                 :open-data (action "Open Data File..." (menu-key KeyEvent/VK_O alt) open-data-file!)
+                 :default-data (action "Change Default Data File..." (menu-key KeyEvent/VK_D shift) change-default!)
                  :reload (action "Reload" (menu-key KeyEvent/VK_R) reload!)
                  :open-file (action "Open data.rec in Text Editor" (menu-key KeyEvent/VK_O shift) open-file!)
                  :reveal (action (if (os/mac?) "Reveal data.rec in Finder" "Show data.rec in Folder")
@@ -1008,7 +1098,7 @@
                  :theme (action "Theme..." (menu-key KeyEvent/VK_T) choose-theme!)
                  :next-theme (action "Next Theme" (menu-key KeyEvent/VK_CLOSE_BRACKET) #(cycle-theme! 1))
                  :prev-theme (action "Previous Theme" (menu-key KeyEvent/VK_OPEN_BRACKET) #(cycle-theme! -1))}
-        menus [["File" KeyEvent/VK_F [:add :reload :sep :open-file :reveal]]
+        menus [["File" KeyEvent/VK_F [:add :reload :sep :new-data :open-data :default-data :sep :open-file :reveal]]
                ["Edit" KeyEvent/VK_E [:undo :sep :edit :delete :copy :toggle-read :sep :rename]]
                ["View" KeyEvent/VK_V [:find :tags :links :sep :open :menu :sep :theme :next-theme :prev-theme]]
                ["Help" KeyEvent/VK_H [:help]]]]
@@ -1134,7 +1224,8 @@
     (.requestFocusInWindow search)))
 
 (defn start!
-  "Open the window on the event thread and load data.rec."
+  "Open the window on the event thread and load data.rec. No data-path: a
+  fresh start, which asks for a file first."
   [{:keys [data-path]}]
   (let [view (load-view)
         first-run? (not (:tag-defaults view))]
@@ -1152,4 +1243,7 @@
             (style-widgets!)
             (show-sort-in-header!)
             (log/event :start :data data-path)
-            (reload!))))
+            (if data-path
+              (do (show-path!) (reload!))
+              ;; after the window is up, so the question has a parent to sit on
+              (on-edt (guarded first-start!))))))
