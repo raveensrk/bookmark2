@@ -74,12 +74,18 @@
   []
   (and (nil? (chosen-path)) (not (.exists (io/file (fallback-path))))))
 
+(defn update-config!
+  "Write (f config) to the config file: the window's settings land next to
+  :data and :app-dir, and keys it does not know are kept."
+  [f]
+  (let [file (config-file)]
+    (io/make-parents file)
+    (spit file (str (pr-str (f (config))) "\n"))))
+
 (defn set-default!
   "Make path the database: :data in the config file, other keys kept."
   [path]
-  (let [f (config-file)]
-    (io/make-parents f)
-    (spit f (str (pr-str (assoc (config) :data (store/short-path path))) "\n"))))
+  (update-config! #(assoc % :data (store/short-path path))))
 
 (defn create-file!
   "Start a new database at path, the header and no links. Nothing when the
@@ -208,10 +214,17 @@
       (store/fail :duplicate (str "Already saved: " (or (:title dup) (:url dup))) :entry dup))
     (change db #(rec/replace-record % (:short db) (:index link) (fields (assoc new :url url))))))
 
+(defn plan-retag
+  "Give each link its new tags, in place: pairs of [link tags], one change."
+  [db pairs]
+  (change db (fn [text]
+               (reduce (fn [t [l tags]] (rec/replace-record t (:short db) (:index l) (fields (assoc l :tags tags))))
+                       text pairs))))
+
 (defn plan-tags
   "Give link these tags, in place."
   [db link tags]
-  (change db #(rec/replace-record % (:short db) (:index link) (fields (assoc link :tags tags)))))
+  (plan-retag db [[link tags]]))
 
 (defn toggle-read
   "The tags with To Read and Read swapped; neither -> To Read added."
@@ -221,8 +234,22 @@
     (some #{done} tags) (mapv #(if (= % done) to-read %) tags)
     :else (conj (vec tags) to-read)))
 
-(defn plan-remove [db link]
-  (change db #(rec/remove-record % (:short db) (:index link))))
+(defn with-tag
+  "tags plus tag. To Read and Read replace each other in place, so a link is
+  never on the reading list and read at once."
+  [tags tag]
+  (let [reading #{to-read done}]
+    (cond
+      (some #{tag} tags) (vec tags)
+      (and (reading tag) (some reading tags)) (vec (distinct (map #(if (reading %) tag %) tags)))
+      :else (conj (vec tags) tag))))
+
+(defn plan-remove
+  "Delete these links, one change. The last record goes first, so the
+  indexes of the others still hold."
+  [db links]
+  (change db (fn [text]
+               (reduce #(rec/remove-record %1 (:short db) %2) text (sort > (distinct (map :index links)))))))
 
 (defn rename-in
   "tags with from (and everything below it) renamed to to."

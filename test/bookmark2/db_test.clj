@@ -62,6 +62,19 @@
     (is (= ["Hardware/FPGA" "Read"]
            (:tags (first (:links (after (db/plan-tags (base) ice (db/toggle-read (:tags ice)))))))))))
 
+(deftest many-at-once
+  (let [[ice hello riscv] (:links (base))]
+    (testing "retag several links in one change"
+      (is (= [["Hardware/FPGA" "Read"] ["Questioning" "X"] ["Hardware/RISC-V"]]
+             (mapv :tags (:links (after (db/plan-retag (base) [[ice (db/with-tag (:tags ice) "Read")]
+                                                               [hello (db/with-tag (:tags hello) "X")]])))))))
+    (testing "delete several; the indexes of the rest still hold"
+      (is (= ["https://nohello.net/en/"] (mapv :url (:links (after (db/plan-remove (base) [riscv ice]))))))))
+  (testing "with-tag: To Read and Read replace each other"
+    (is (= ["A" "Read"] (db/with-tag ["A" "To Read"] "Read")))
+    (is (= ["A" "To Read"] (db/with-tag ["A"] "To Read")))
+    (is (= ["A"] (db/with-tag ["A"] "A")))))
+
 (deftest edit-in-place
   (let [out (after (db/plan-edit (base) (second (:links (base)))
                                  {:url "https://nohello.net/en/" :title "no hello" :tags ["Writing/Questioning"] :note ""}))]
