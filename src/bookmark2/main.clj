@@ -71,15 +71,27 @@ THE WINDOW
   Left: every tag as a tree, with counts (a branch counts everything below it).
   Right: the links folded by tag, newest first; a link with two tags shows
   under both. Choosing a branch shows every link in and below it. The search box
-  matches title, url, tags and note. Add, edit, delete, undo; r marks a link read
-  or back to To Read; F2 renames a tag on every link, and a / in the new name
-  moves it in the tree (FPGA -> Hardware/FPGA), with the tags below it.
+  matches title, url, tags and note. Add, edit, delete, undo, redo; r marks a
+  link read or back to To Read; t adds a tag; F2 renames a tag on every link,
+  and a / in the new name moves it in the tree (FPGA -> Hardware/FPGA), with
+  the tags below it.
+
+  Select several links (Shift or Cmd click, Shift+arrows, J K, Cmd+A) and
+  open, copy, mark, tag or delete them at once. Drag links onto a tag to add
+  it; drag a tag onto another to move it there (onto All: to the top); drop a
+  url from a browser to add it; drag links out as their urls. Cut, Copy and
+  Paste work in text fields, and in the list Copy copies urls and Paste adds
+  the url on the clipboard. Right-click menus everywhere, text fields too.
+
+  File > Restart starts the app again. The window comes back as it was at
+  quit: its file, tag, search, size and divider (view.edn).
 
 KEYBOARD
   Everything works without a mouse. Tab cycles search, tags, links; each pane
-  has single keys (j k g G e y a r h / ?); every action has a Cmd shortcut
+  has single keys (j k g G e y a r t h / ?); every action has a Cmd shortcut
   (Ctrl off macOS). ? or Help > Keyboard Shortcuts lists them all, and the
-  status bar shows the keys for the focused pane.
+  status bar shows the keys for the focused pane. Settings > Keyboard changes
+  any key: Enter changes the chosen one, a adds another, Reset goes back.
 
 FOLDING AND SORTING
   Space or za folds the tag under the cursor, zc / zo fold / unfold it, zM / zR
@@ -88,12 +100,24 @@ FOLDING AND SORTING
   it. To Read and Read always come first. Folds and the sort are remembered in
   folds.edn and view.edn next to the log; folds are ignored while you search.
 
-THEMES
-  View > Theme... (Cmd+T) lists every dark theme: FlatLaf's own and the
-  IntelliJ theme pack's (Gruvbox, Nord, Dracula, One Dark, Solarized, Monokai
-  Pro, Material, ...). Arrows preview each in the whole window, Enter keeps,
-  Esc goes back. Cmd+] and Cmd+[ step to the next and previous theme. The
-  choice is saved in view.edn. Tags are coloured by their top-level branch.
+SETTINGS
+  Settings... (Cmd+, in the app menu on macOS, Edit > Settings elsewhere): a
+  side bar of categories. Appearance: the theme, the text size, motion.
+  Keyboard: every key. Data: the default file and where things are saved.
+  Changes apply at once and are saved in the config.
+
+  Themes: every dark theme, FlatLaf's own and the IntelliJ theme pack's
+  (Gruvbox, Nord, Dracula, One Dark, Solarized, Monokai Pro, Material, ...).
+  View > Theme... (Cmd+T) opens the list; arrows preview each in the whole
+  window, cross-fading. Cmd+] and Cmd+[ step to the next and previous theme.
+  Tags are coloured by their top-level branch.
+
+  Text size: 20 pt by default; the whole window scales with it. Cmd+= bigger,
+  Cmd+- smaller, Cmd+0 back to 20. The size in use at quit is the next start's.
+
+  Motion: theme cross-fades, long jumps that glide, menus that fade in,
+  smooth scrolling. Settings > Appearance turns them off. Busy work (a load, a
+  page title) shows a spinner or a busy bar either way.
 
 WHERE THE DATA LIVES
   --data FILE, else BOOKMARK2_DATA, else :data in ~/.config/bookmark2/config.edn,
@@ -108,6 +132,9 @@ WHERE THE DATA LIVES
 
     {:data \"~/notes/links.rec\" :app-dir \"~/Applications/My_Apps\"}
 
+  The window adds its settings there too: :theme, :font-size, :animations
+  (false turns motion off) and :keys, the keys changed from the defaults.
+
   examples/data.rec holds sample links: bookmark2 --data examples/data.rec
 
 ENVIRONMENT
@@ -121,7 +148,7 @@ FILES
   reads, writes   the database (see WHERE THE DATA LIVES)
   reads, writes   ~/.config/bookmark2/config.edn (the window writes :data)
   writes          " (log/log-file) "   (one JSON object per line)
-  writes          folds.edn and view.edn in the same folder
+  writes          folds.edn and view.edn (sort, window) in the same folder
 
 EXIT CODES
   0  ok, or the window closed
@@ -216,5 +243,7 @@ EXIT CODES
             (log/event :repl :port port)
             (binding [*out* *err*] (println (str "bookmark2: socket REPL on 127.0.0.1:" port)))))
         ;; a fresh start (no file named, none at the default place): the window asks
+        ;; the window reopens the file it showed at quit, unless one is named here
         ((requiring-resolve 'bookmark2.ui/start!)
-         {:data-path (when-not (and (str/blank? data) (db/needs-choice?)) path)})))))
+         {:data-path (when-not (and (str/blank? data) (db/needs-choice?)) path)
+          :explicit? (or (not (str/blank? data)) (some? (not-empty (System/getenv "BOOKMARK2_DATA"))))})))))

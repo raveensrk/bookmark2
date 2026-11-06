@@ -1,5 +1,5 @@
 (ns bookmark2.ui-test
-  "The list's pure parts: grouping by tag, scope, sorting, folds. No window."
+  "The window's pure parts: grouping, sorting, folds, urls, drops, keys. No window."
   (:require [bookmark2.ui :as ui]
             [clojure.test :refer [deftest is testing]]))
 
@@ -53,3 +53,46 @@
     (is (= [0 0] (#'ui/tag-segment "" 0)))
     (is (= [9 12] (#'ui/tag-segment "Hardware, FP, Read" 11)))
     (is (= [9 9] (#'ui/tag-segment "Hardware," 9)))))
+
+(deftest url-highlight
+  (is (= ["https://" "www.x.org" "/a/b?q=1"] (ui/url-parts "https://www.x.org/a/b?q=1")))
+  (is (= ["https://" "x.org" ""] (ui/url-parts "https://x.org")))
+  (is (= ["" "not a url" ""] (ui/url-parts "not a url"))))
+
+(deftest dropping
+  (testing "a url out of dropped or pasted text"
+    (is (= "https://a.dev/x" (ui/url-in "see https://a.dev/x now")))
+    (is (nil? (ui/url-in "no link here"))))
+  (testing "a tag dragged onto another moves under it; onto All, to the top"
+    (is (= "Hardware/FPGA" (ui/moved-tag "FPGA" "Hardware")))
+    (is (= "FPGA" (ui/moved-tag "Hardware/FPGA" nil)))
+    (is (nil? (ui/moved-tag "Hardware/FPGA" "Hardware")) "already there")
+    (is (nil? (ui/moved-tag "Hardware" "Hardware/FPGA")) "not into itself")
+    (is (nil? (ui/moved-tag "Hardware" "Hardware")))))
+
+(deftest key-bindings
+  (testing "how a key reads"
+    (is (= "j" (ui/key-text "typed j")))
+    (is (= "Cmd+N" (ui/key-text "meta pressed N")))
+    (is (= "Cmd+Shift+=" (ui/key-text "shift meta pressed EQUALS")))
+    (is (= "Shift+F10" (ui/key-text "shift F10")))
+    (is (= "Page Down" (ui/key-text "PAGE_DOWN")))
+    (is (= "za" (ui/key-text "za"))))
+  (testing "a menu shortcut needs a modifier or a function key"
+    (is (ui/shortcut-ok? "meta pressed L"))
+    (is (ui/shortcut-ok? "F2"))
+    (is (not (ui/shortcut-ok? "typed l")))
+    (is (not (ui/shortcut-ok? "ENTER"))))
+  (testing "clashes: the same pane, or a menu shortcut anywhere"
+    (let [entries [{:scope :list :id :next :keys ["DOWN" "typed j"]}
+                   {:scope :tree :id :next :keys ["DOWN" "typed j"]}
+                   {:scope :app :id :add :keys ["meta pressed N"]}]]
+      (is (= :next (:id (ui/key-conflict entries :list :prev "typed j"))))
+      (is (nil? (ui/key-conflict entries :list :next "typed j")) "its own key")
+      (is (= :add (:id (ui/key-conflict entries :list :tag "meta N"))))
+      (is (nil? (ui/key-conflict entries :search :open "typed j")) "another pane"))))
+
+(deftest text-size
+  (is (= 10 (ui/clamp-font-size 3)))
+  (is (= 40 (ui/clamp-font-size 99)))
+  (is (= 20 (ui/clamp-font-size 20))))

@@ -33,11 +33,20 @@ Note: build a computer from first principles
 - **Rename a tag** with F2. A `/` in the new name moves it, and everything
   below it, to another place in the tree.
 - **Fully keyboard-driven**, with Vim-style keys (`j k g G`, `za zM zR` folds).
-  `?` lists every key. The mouse is optional.
-- **Undo** for every change. Writes are refused if another program changed
-  the file since it was read.
+  `?` lists every key, and Settings changes any of them. The mouse is
+  optional.
+- **Several links at once**: select them, then open, copy, mark read, tag or
+  delete them together.
+- **Drag and drop**: links onto a tag to tag them, a tag onto another to move
+  it, a URL from the browser to add it.
+- **Undo and redo** for every change. Writes are refused if another program
+  changed the file since it was read.
 - **37 dark themes**, including Gruvbox, Nord, Dracula, One Dark, Solarized and
   Monokai Pro, previewed live with Cmd+T.
+- **Settings** with a side bar: theme, text size (20 pt by default, Cmd+= and
+  Cmd+- change it), motion, keys, data files.
+- **Picks up where you left off**: the window, file, tag and search come back
+  after a quit or File > Restart.
 - **Command line**: `bookmark2 add`, `list` and `read`, for scripts and
   terminals.
 

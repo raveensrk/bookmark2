@@ -14,7 +14,8 @@ that file. Nobody's personal data lives in this repo; only
 - [`src/bookmark2/db.clj`](src/bookmark2/db.clj) - finding the database (`--data`, `BOOKMARK2_DATA`, `~/.config/bookmark2/config.edn`, then `~/.local/share/bookmark2/data.rec`; with none of them, the window asks), setting the default, reading it, and planning changes: add, edit, tags, read toggle, rename a tag subtree. No Swing.
 - [`src/bookmark2/store.clj`](src/bookmark2/store.clj) - `commit!`, which refuses when the file changed on disk, plus undo and url normalizing.
 - [`src/bookmark2/rec.clj`](src/bookmark2/rec.clj) - GNU librec, called through Java's FFM API with no binding library, loaded at run time.
-- [`src/bookmark2/ui.clj`](src/bookmark2/ui.clj) - the window: the tag tree on the left, links folded by tag on the right, and themes. All state is in the `state` atom.
+- [`src/bookmark2/ui.clj`](src/bookmark2/ui.clj) - the window: the tag tree on the left, links folded by tag on the right, drag and drop, Settings, themes and text size. All state is in the `state` atom.
+- [`src/bookmark2/anim.clj`](src/bookmark2/anim.clj) - motion on FlatLaf's Animator: glides, the theme cross-fade, fading pop-ups, the spinner. Off with `:animations false`.
 - [`src/bookmark2/main.clj`](src/bookmark2/main.clj) - the command line (`add`, `list`, `read`). The options table drives the help.
 - [`src/bookmark2/web.clj`](src/bookmark2/web.clj), [`os.clj`](src/bookmark2/os.clj), [`json.clj`](src/bookmark2/json.clj), [`log.clj`](src/bookmark2/log.clj) - page titles and opening links, per-OS calls, a small JSON writer, the JSON-lines log.
 - [`script/`](script/) - `install` (puts the command on the PATH, writes the config), `build_app` (the macOS app), `make_icon`, and `post-commit` (an optional maintainer hook).
@@ -27,7 +28,9 @@ that file. Nobody's personal data lives in this repo; only
 - Every librec call holds `rec/lock`, because librec is not thread-safe. A C `int` argument needs a Java `int`: `downcall` coerces by layout, so add every new signature to its `signatures` table.
 - Every write is a plan first, `[[path old new] ...]`, and goes through `store/commit!`.
 - Dark themes only. `themes` in `ui.clj` lists the dark ones, and the colours the app draws itself (`accent`, `dim`, `band`, `tag-color`) come from the theme's `UIManager` keys, so they follow a theme switch.
-- Keyboard first: every action needs a key. `pane-keys` in `ui.clj` binds the single keys and also generates the help, so a new action goes into that table or into the menu actions, never as an unlisted binding.
+- Keyboard first: every action needs a key. `pane-keys` (single keys per pane) and `app-actions` (menu shortcuts) in `ui.clj` drive the bindings, the help, the status-bar hints and Settings > Keyboard, so a new action goes into one of those tables, never as an unlisted binding.
+- Text size drives the layout: sizes in code are at 13 pt and go through `UIScale/scale`, so they grow with the 20 pt default.
+- Settings the user picks go in `config.edn` (`:theme :font-size :keys :animations`); what the window remembers goes in `view.edn` (`:sort :session`).
 - Per-OS calls (text editor, reveal in file manager) live in [`os.clj`](src/bookmark2/os.clj).
 - Never commit a personal database. `/data.rec` is gitignored, and tests use temp files or `examples/data.rec`.
 
