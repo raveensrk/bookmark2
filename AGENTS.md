@@ -18,7 +18,7 @@ that file. Nobody's personal data lives in this repo; only
 - [`src/bookmark2/anim.clj`](src/bookmark2/anim.clj) - motion on FlatLaf's Animator: glides, the theme cross-fade, fading pop-ups, the spinner. Off with `:animations false`.
 - [`src/bookmark2/main.clj`](src/bookmark2/main.clj) - the command line (`add`, `list`, `read`). The options table drives the help.
 - [`src/bookmark2/web.clj`](src/bookmark2/web.clj), [`os.clj`](src/bookmark2/os.clj), [`json.clj`](src/bookmark2/json.clj), [`log.clj`](src/bookmark2/log.clj) - page titles and opening links, per-OS calls, a small JSON writer, the JSON-lines log.
-- [`script/`](script/) - `install` (puts the command on the PATH, writes the config), `build_app` (the macOS app), `make_icon`, and `post-commit` (an optional maintainer hook).
+- [`script/`](script/) - `install` (puts the command on the PATH, writes the config), `build_app` (the macOS app), and `make_icon`.
 
 ## Rules
 
@@ -47,10 +47,12 @@ After editing it, run [`script/make_icon`](script/make_icon) and commit the
 `.icns` and `.png` it writes. The build reads those files and never renders
 the SVG itself.
 
-Optional for maintainers: [`script/post-commit`](script/post-commit) rebuilds
-and reinstalls the app after each commit that touches `src/`, `assets/`,
-`deps.edn` or `script/build_app`. `script/post-commit help` shows how to
-install it as a git hook. `BOOKMARK2_NO_INSTALL=1 git commit ...` skips it once.
+Optional for maintainers: a commit on the default branch that touches `src/`,
+`assets/`, `deps.edn` or `script/build_app` builds the app in the pre-commit
+hook, and a failed build refuses the commit; post-commit installs it
+([`.githooks/app-install`](.githooks/app-install)). A fresh clone needs
+`git config core.hooksPath .githooks` to enable the hooks.
+`BOOKMARK2_NO_INSTALL=1 git commit ...` skips it once.
 
 ## Check
 

@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# post-commit: run the repo's own .git/hooks/post-commit, if any, then install what pre-commit built.
+# Always exits 0: the commit is made, so nothing here can refuse it.
+case "${1:-}" in -h|--help|help) sed -n '2,3p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
+own="$(git rev-parse --git-common-dir 2>/dev/null)/hooks/post-commit"
+[ -x "$own" ] && "$own" "$@"
+"$(dirname "$0")/app-install" postcommit < /dev/null || true
+exit 0

@@ -1,0 +1,382 @@
+#!/usr/bin/env bash
+# app-install: keep Bookmark2.app current in ~/Applications/My_Apps on macOS.
+# Run by .githooks/pre-commit, post-commit, post-merge and post-rewrite.
+#
+#   pre-commit on the default branch, the staged diff touches an app's paths?
+#     no  -> nothing
+#     yes -> build the staged tree now; a failed build refuses the commit.
+#            Built: stamp AppSourceTree in Info.plist, sign, hold it in
+#            .git/<state>/ready; post-commit stages it in
+#            ~/Library/Caches/My_Apps/staging/<App>.app and installs it once
+#            the commit holds that tree, so a refused commit installs nothing
+#   merge or rebase moves HEAD on the default branch (pre-commit does not run)?
+#     the same build, in the background (latest commit wins), also stamping
+#     AppSourceCommit; a failure is a notification. A tree already built is
+#     never built again
+#   staged -> not running: swapped in now
+#             running: a detached waiter swaps it in once the app quits;
+#                      every hook run retries, so a reboot strands nothing
+#             helper (LSUIElement, LSBackgroundOnly, or a LaunchAgent):
+#                      quit, swapped, started again
+#
+#   .githooks/app-install precommit     what pre-commit runs
+#   .githooks/app-install postcommit    what post-commit runs
+#   .githooks/app-install hook          what post-merge and post-rewrite run
+#   .githooks/app-install worker        the build loop (started by the above)
+#   .githooks/app-install wait BUNDLE   the waiter (started by the above)
+#   .githooks/app-install -h | --help | help
+# Skip once: BOOKMARK2_NO_INSTALL=1 git commit ...
+# Env: MY_APPS_DIR overrides the install folder and staging, for tests only.
+# Files: .git/bookmark2-install/ (log, last-seen, built.*, the build's export), the
+#   staging folder above, ~/Applications/My_Apps. Logs are JSON lines in
+#   .git/bookmark2-install/log, the build's own output too.
+# Exit: precommit 1 when a build fails, which refuses the commit; 0 otherwise.
+#   The hook path exits 0 always: git ignores it.
+set -u
+
+NAME=bookmark2
+STATE_NAME=bookmark2-install
+NO_INSTALL_VAR=BOOKMARK2_NO_INSTALL
+FRESH_EXPORT=1
+TOOL_PATHS=/opt/homebrew/bin:/opt/homebrew/opt/rustup/bin:$HOME/.cargo/bin
+EXPORT_PATHS=(src assets deps.edn script)
+# key | bundle | title in notifications | paths whose change needs a build
+APPS=(
+  'app|Bookmark2.app|Bookmark2|^(src/|assets/|deps\.edn$|script/build_app$|\.githooks/)'
+)
+
+build_app() { script/build_app --no-install; }
+built_path() { echo "$PWD/target/dist/Bookmark2.app"; }
+announce() { :; }
+
+# ---- Nothing below this line is specific to this repo. ----
+
+STALE_LOCK_MIN=60     # a lock with no live worker and older than this is left over
+WAIT_POLL_S=2         # how often a waiter checks whether the app has quit
+QUIT_WAIT_S=5         # how long a helper gets to quit before it is swapped anyway
+STAMP_KEY=AppSourceCommit
+TREE_KEY=AppSourceTree
+PLIST_BUDDY=/usr/libexec/PlistBuddy
+LSREGISTER=/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister
+
+case "${1:-}" in
+  -h|--help) sed -n '2,3p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  help) sed -n '2,/^set -u/p' "$0" | sed '$d; s/^# \{0,1\}//'; exit 0 ;;
+esac
+
+[ "$(uname)" = Darwin ] || exit 0
+
+# A hook runs with git's own GIT_DIR and index; everything here uses -C.
+# pre-commit's index is kept: `git commit -a` or `git commit <paths>` stage
+# into a temporary one, and that is what the commit holds.
+hook_index=${GIT_INDEX_FILE:-}
+unset GIT_DIR GIT_INDEX_FILE GIT_WORK_TREE GIT_PREFIX
+repo=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+state="$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)/$STATE_NAME"
+mkdir -p "$state"
+
+my_apps="${MY_APPS_DIR:-$HOME/Applications/My_Apps}"
+if [ -n "${MY_APPS_DIR:-}" ]; then staging="$MY_APPS_DIR/.staging"; else staging="$HOME/Library/Caches/My_Apps/staging"; fi
+mkdir -p "$my_apps" "$staging"
+
+log() { printf '{"ts":"%s","level":"%s","event":"%s"%s}\n' "$(date -u +%FT%TZ)" "$1" "$2" "${3:-}" >> "$state/log"; }
+
+# A macOS notification: title, message. Arguments, so quotes need no escaping.
+notify() {
+  osascript -e 'on run argv' -e 'display notification (item 2 of argv) with title (item 1 of argv)' \
+    -e 'end run' "$1" "$2" > /dev/null 2>&1 || log warn notify_failed
+}
+
+# origin/HEAD, else main. set-head needs the network, so it runs apart from the
+# hook and helps the next run.
+default_branch() {
+  local ref
+  ref=$(git -C "$repo" symbolic-ref --short -q refs/remotes/origin/HEAD) && { echo "${ref#origin/}"; return; }
+  if git -C "$repo" remote get-url origin > /dev/null 2>&1; then
+    nohup git -C "$repo" remote set-head origin -a > /dev/null 2>&1 < /dev/null &
+  fi
+  echo main
+}
+
+running() { pgrep -f "$my_apps/$1/Contents/" > /dev/null; }
+
+# Serialises staging and swapping one bundle.
+bundle_lock() {
+  local name=${1:?} tries=0
+  until mkdir "$staging/$name.lock" 2>/dev/null; do
+    tries=$((tries + 1))
+    [ "$tries" -gt 300 ] && rm -rf "${staging:?}/${name:?}.lock"
+    sleep 0.1
+  done
+}
+bundle_unlock() { local name=${1:?}; rm -rf "${staging:?}/${name:?}.lock"; }
+
+# The new bundle goes in whole: moved beside the old one, the old one deleted,
+# never trashed, so whatever holds its path never follows an old copy.
+swap() {
+  local name=${1:?} dest="$my_apps/${1:?}"
+  bundle_lock "$name"
+  if [ -e "$staging/$name" ]; then
+    rm -rf "${dest:?}.new"
+    mv "$staging/$name" "$dest.new"
+    rm -rf "${dest:?}"
+    mv "$dest.new" "$dest"
+    "$LSREGISTER" -f "$dest" > /dev/null 2>&1 || log warn lsregister_failed
+    log info swapped ",\"bundle\":\"$name\""
+  fi
+  bundle_unlock "$name"
+}
+
+# The LaunchAgent label that launches this bundle, if any.
+agent_label() {
+  local plist
+  for plist in "$HOME"/Library/LaunchAgents/*.plist; do
+    [ -f "$plist" ] || continue
+    grep -qF "$my_apps/$1/" "$plist" || continue
+    "$PLIST_BUDDY" -c 'Print :Label' "$plist" 2>/dev/null && return
+  done
+}
+
+is_helper() {
+  local plist="$staging/$1/Contents/Info.plist"
+  [ "$("$PLIST_BUDDY" -c 'Print :LSUIElement' "$plist" 2>/dev/null)" = true ] && return 0
+  [ "$("$PLIST_BUDDY" -c 'Print :LSBackgroundOnly' "$plist" 2>/dev/null)" = true ] && return 0
+  [ -n "$(agent_label "$1")" ]
+}
+
+# A background helper is quit, swapped and started again right away.
+restart_helper() {
+  local name=$1 label waited=0
+  label=$(agent_label "$name")
+  pkill -f "$my_apps/$name/Contents/" 2>/dev/null
+  while running "$name" && [ "$waited" -lt "$QUIT_WAIT_S" ]; do sleep 1; waited=$((waited + 1)); done
+  swap "$name"
+  if [ -n "$label" ]; then
+    launchctl kickstart -k "gui/$(id -u)/$label" > /dev/null 2>&1 || log warn kickstart_failed
+    return
+  fi
+  # Launch Services can miss a bundle swapped in a moment ago (error -600); retry.
+  for _ in 1 2 3 4 5; do open "$my_apps/$name" > /dev/null 2>&1 && return; sleep 1; done
+  log warn relaunch_failed ",\"bundle\":\"$name\""
+}
+
+# Waits for the app to quit, then swaps the staged build in. One per bundle.
+start_waiter() {
+  local name=$1 pidfile="$staging/$1.waiter" pid
+  pid=$(cat "$pidfile" 2>/dev/null || true)
+  [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null && return
+  nohup "$0" wait "$name" > /dev/null 2>&1 < /dev/null &
+  echo $! > "$pidfile"
+}
+
+# Puts a staged build where it belongs, or leaves it for a waiter. Every hook
+# run does this, so a reboot, which kills waiters, cannot strand an update.
+install_staged() {
+  local name=$1
+  [ -e "$staging/$name" ] || return 0
+  if is_helper "$name"; then
+    restart_helper "$name"
+    return 0
+  fi
+  if running "$name"; then
+    start_waiter "$name"
+    return 1
+  fi
+  swap "$name"
+}
+
+each_app() {
+  local entry key bundle title paths
+  for entry in "${APPS[@]}"; do
+    IFS='|' read -r key bundle title paths <<< "$entry"
+    "$@"
+  done
+}
+
+# Puts a built bundle in staging, then installs it or leaves it for a waiter.
+install_built() {
+  local from=$1 rev=$2
+  bundle_lock "$bundle"
+  rm -rf "${staging:?}/${bundle:?}.tmp" "${staging:?}/${bundle:?}"
+  ditto "$from" "$staging/$bundle.tmp"
+  mv "$staging/$bundle.tmp" "$staging/$bundle"
+  bundle_unlock "$bundle"
+
+  if install_staged "$bundle"; then
+    log info install_done ",\"app\":\"$key\",\"rev\":\"$rev\""
+    notify "$title installed" "$rev · $my_apps/$bundle"
+    announce "$key"
+    return 0
+  fi
+  log info staged_until_quit ",\"app\":\"$key\",\"rev\":\"$rev\""
+  notify "$title built" "$rev installs when you quit it"
+}
+
+# Builds the tree into src, stamps and signs one app. commit is empty before
+# the commit exists: the build is then held in $state/ready for post-commit,
+# so a commit refused after pre-commit installs nothing. Otherwise it is
+# installed now. Returns 1 when the build fails.
+build_tree() {
+  local tree=$1 commit=$2 src=$3 rev built
+  # Before the commit exists, the version is its parent's plus a "+".
+  rev=${commit:0:7}
+  [ -n "$rev" ] || rev="$(git -C "$repo" rev-parse --short HEAD 2>/dev/null)+"
+  log info build_start ",\"app\":\"$key\",\"rev\":\"$rev\""
+
+  [ "$FRESH_EXPORT" = 1 ] && rm -rf "${src:?}"
+  mkdir -p "$src"
+  if ! git -C "$repo" archive "$tree" "${EXPORT_PATHS[@]}" | tar -x -C "$src" \
+      || ! (cd "$src" && REV="$rev" STATE="$state" build_app "$key") >> "$state/log" 2>&1; then
+    log error build_failed ",\"app\":\"$key\",\"rev\":\"$rev\""
+    return 1
+  fi
+
+  built=$(cd "$src" && STATE="$state" built_path "$key")
+  "$PLIST_BUDDY" -c "Delete :$STAMP_KEY" "$built/Contents/Info.plist" > /dev/null 2>&1
+  [ -n "$commit" ] && "$PLIST_BUDDY" -c "Add :$STAMP_KEY string $commit" "$built/Contents/Info.plist"
+  "$PLIST_BUDDY" -c "Delete :$TREE_KEY" "$built/Contents/Info.plist" > /dev/null 2>&1
+  "$PLIST_BUDDY" -c "Add :$TREE_KEY string $tree" "$built/Contents/Info.plist"
+  codesign --force --deep -s - "$built" >> "$state/log" 2>&1
+  if ! codesign --verify "$built" >> "$state/log" 2>&1; then
+    log error verify_failed ",\"app\":\"$key\",\"rev\":\"$rev\""
+    return 1
+  fi
+
+  echo "$tree" > "$state/built.$key"
+  if [ -z "$commit" ]; then
+    mkdir -p "$state/ready"
+    rm -rf "${state:?}/ready/${bundle:?}"
+    ditto "$built" "$state/ready/$bundle"
+    printf '%s %s\n' "$tree" "$rev" > "$state/ready/$bundle.tree"
+    log info built_for_commit ",\"app\":\"$key\",\"rev\":\"$rev\""
+  else
+    install_built "$built" "$rev"
+  fi
+  # The export's copy is not a place Launch Services should remember.
+  "$LSREGISTER" -u "$built" > /dev/null 2>&1
+  return 0
+}
+
+# post-commit: install what pre-commit built, once the commit holds that tree.
+# A build for a refused commit stays until a commit with its tree lands, or a
+# newer build replaces it.
+install_ready_one() {
+  local ready="$state/ready/$bundle" want rev
+  [ -e "$ready" ] || return 0
+  read -r want rev < "$ready.tree" 2>/dev/null || return 0
+  [ "$want" = "$(git -C "$repo" rev-parse HEAD^{tree})" ] || return 0
+  install_built "$ready" "$rev"
+  rm -rf "${ready:?}" "${ready:?}.tree"
+}
+
+# The background worker's build of the default branch's commit.
+build_one() {
+  local sha tree
+  [ -e "$state/pending.$key" ] || return 0
+  rm -f "${state:?}/pending.${key:?}"
+  sha=$(git -C "$repo" rev-parse "$branch")
+  tree=$(git -C "$repo" rev-parse "$sha^{tree}")
+  [ "$(cat "$state/built.$key" 2>/dev/null)" = "$tree" ] && return 0
+  build_tree "$tree" "$sha" "$state/src" \
+    || notify "$title build failed" "${sha:0:7}. See $state/log"
+  return 0
+}
+
+# pre-commit's build of the staged tree; a failure fails the commit.
+precommit_one() {
+  [ -z "$changed" ] || printf '%s\n' "$changed" | grep -Eq "$paths" || return 0
+  [ "$(cat "$state/built.$key" 2>/dev/null)" = "$tree" ] && return 0
+  echo "$NAME: building $bundle for this commit (log: $state/log)"
+  local from
+  from=$(wc -l < "$state/log" 2>/dev/null || echo 0)
+  if ! build_tree "$tree" "" "$state/src-precommit"; then
+    tail -n +"$((from + 1))" "$state/log" | tail -20 >&2
+    echo "$NAME: $bundle did not build; commit refused. Fix it, or skip once: $NO_INSTALL_VAR=1 git commit ..." >&2
+    failed=1
+  fi
+}
+
+sweep_one() { install_staged "$bundle" || true; }
+
+mark_one() {
+  [ -z "$changed" ] || printf '%s\n' "$changed" | grep -Eq "$paths" || return 0
+  [ "$(cat "$state/built.$key" 2>/dev/null)" = "$(git -C "$repo" rev-parse "$head^{tree}")" ] && return 0
+  touch "$state/pending.$key"
+}
+
+any_pending() { compgen -G "$state/pending.*" > /dev/null; }
+
+case "${1:-}" in
+  wait)
+    bundle=$2
+    while [ -e "$staging/$bundle" ] && running "$bundle"; do sleep "$WAIT_POLL_S"; done
+    swap "$bundle"
+    rm -f "${staging:?}/${bundle:?}.waiter"
+    exit 0
+    ;;
+  postcommit)
+    # Then on to the hook below: a commit made with --no-verify, which built
+    # nothing, still builds in the background.
+    each_app install_ready_one
+    ;;
+  precommit)
+    each_app sweep_one
+    skip_var=$NO_INSTALL_VAR
+    [ -n "${!skip_var:-}" ] && exit 0
+    [ "$(git -C "$repo" symbolic-ref --short -q HEAD)" = "$(default_branch)" ] || exit 0
+    export PATH="$TOOL_PATHS:$PATH"
+    tree=$( (cd "$repo" && GIT_INDEX_FILE="${hook_index:-$(git rev-parse --git-path index)}" git write-tree) ) || exit 1
+    # Empty means "cannot tell": the first commit. Build every app.
+    changed=
+    if git -C "$repo" rev-parse -q --verify HEAD > /dev/null; then
+      changed=$(git -C "$repo" diff --name-only HEAD "$tree")
+      [ -n "$changed" ] || exit 0
+    fi
+    failed=0
+    each_app precommit_one
+    exit "$failed"
+    ;;
+  worker)
+    export PATH="$TOOL_PATHS:$PATH"
+    branch=$(default_branch)
+    while any_pending; do each_app build_one; done
+    rm -rf "${state:?}/lock"
+    exit 0
+    ;;
+esac
+
+# The hook: first anything a reboot stranded, then did HEAD move on the default branch?
+each_app sweep_one
+skip_var=$NO_INSTALL_VAR
+[ -n "${!skip_var:-}" ] && exit 0
+branch=$(default_branch)
+[ "$(git -C "$repo" symbolic-ref --short -q HEAD)" = "$branch" ] || exit 0
+head=$(git -C "$repo" rev-parse HEAD)
+last=$(cat "$state/last-seen" 2>/dev/null || true)
+[ "$head" = "$last" ] && exit 0
+echo "$head" > "$state/last-seen"
+
+# Empty means "cannot tell": no old HEAD on record, or it is gone. Install.
+changed=
+if [ -n "$last" ] && git -C "$repo" cat-file -e "$last^{commit}" 2>/dev/null; then
+  changed=$(git -C "$repo" diff --name-only "$last" "$head")
+  [ -n "$changed" ] || exit 0
+fi
+each_app mark_one
+any_pending || exit 0
+
+if ! mkdir "$state/lock" 2>/dev/null; then
+  pid=$(cat "$state/lock/pid" 2>/dev/null || true)
+  if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
+    echo "$NAME: a build is running; it builds this commit next"
+    exit 0
+  fi
+  # No live worker: a fresh lock is one just being taken; an old one is left over.
+  [ -z "$(find "$state/lock" -maxdepth 0 -mmin +"$STALE_LOCK_MIN" 2>/dev/null)" ] && [ -z "$pid" ] && exit 0
+  rm -rf "${state:?}/lock"
+  mkdir "$state/lock" 2>/dev/null || exit 0
+fi
+nohup "$0" worker > /dev/null 2>&1 < /dev/null &
+echo $! > "$state/lock/pid"
+echo "$NAME: building in the background (log: $state/log)"
+exit 0

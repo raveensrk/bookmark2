@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# post-rewrite: run the repo's own .git/hooks/post-rewrite, if any, then .githooks/app-install.
+# Always exits 0: nothing here blocks or fails a git operation.
+case "${1:-}" in -h|--help|help) sed -n '2,3p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
+own="$(git rev-parse --git-common-dir 2>/dev/null)/hooks/post-rewrite"
+[ -x "$own" ] && "$own" "$@"
+"$(dirname "$0")/app-install" hook < /dev/null || true
+exit 0

@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# pre-commit: run the repo's own .git/hooks/pre-commit, if any, then build the apps; post-commit installs them.
+# A failed build refuses the commit. Skip once: BOOKMARK2_NO_INSTALL=1 git commit ...
+case "${1:-}" in -h|--help|help) sed -n '2,3p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;; esac
+own="$(git rev-parse --git-common-dir 2>/dev/null)/hooks/pre-commit"
+if [ -x "$own" ]; then "$own" "$@" || exit; fi
+exec "$(dirname "$0")/app-install" precommit < /dev/null
